@@ -1,4 +1,4 @@
-# admin_app.py (versión web para Render)
+# admin_app.py (versión web para Render con menú de accesos)
 from flask import Blueprint
 import sqlite3
 from datetime import datetime
@@ -45,9 +45,22 @@ def admin_panel():
     rows = cursor.fetchall()
     conn.close()
 
-    # Construir tabla HTML
+    # Menú de accesos rápidos
+    menu = """
+    <h1>Panel de Control</h1>
+    <h3>Accesos rápidos</h3>
+    <ul>
+        <li><a href="/">Registro</a></li>
+        <li><a href="/verificar/TEST-CODIGO">Verificación por QR (ejemplo)</a></li>
+        <li><a href="/verificar">API de Verificación (POST)</a></li>
+        <li><a href="/configurar_tiempo">Configurar Tiempo</a></li>
+        <li><a href="/limpiar">Limpieza</a></li>
+    </ul>
+    """
+
+    # Tabla de beneficiarios
     tabla = """
-    <h1>Panel de control</h1>
+    <h3>Beneficiarios registrados</h3>
     <table border=1 cellpadding=5>
         <tr>
             <th>ID</th><th>Nombre</th><th>CURP</th><th>Status</th><th>Código Único</th>
@@ -60,4 +73,5 @@ def admin_panel():
         tabla += f"<td>{row['status']}</td><td>{row['codigo_unico']}</td></tr>"
     tabla += "</table>"
 
-    return tabla
+    return menu + tabla
+
