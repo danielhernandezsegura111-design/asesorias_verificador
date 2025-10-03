@@ -82,9 +82,6 @@ def verificar_codigo():
     conn.close()
 
     return jsonify({"status": "puede reclamar", "nombre": nombre})
-`
-
----
 # ---------------- CONFIGURACIÓN DE TIEMPO DE RENOVACIÓN ----------------
 # Valor por defecto: 10 segundos (para pruebas)
 TIEMPO_RENOVACION = timedelta(seconds=10)
