@@ -9,6 +9,26 @@ BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 TEMPLATES_DIR = os.path.join(BASE_DIR, "templates")
 
 app = Flask(__name__, template_folder=TEMPLATES_DIR)
+def ensure_schema():
+    conn = sqlite3.connect("beneficiarios.db")
+    cursor = conn.cursor()
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS beneficiarios (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            nombre TEXT NOT NULL,
+            curp TEXT UNIQUE NOT NULL,
+            codigo_unico TEXT UNIQUE NOT NULL,
+            status TEXT DEFAULT 'PENDIENTE',
+            fecha_reclamo TEXT,
+            fecha_expira TEXT
+        )
+    """)
+    conn.commit()
+    conn.close()
+
+# Llamar al inicio
+ensure_schema()
+
 
 # ---------------- CONFIGURACIÓN DE TIEMPO DE RENOVACIÓN ----------------
 # Valor por defecto: 10 segundos (para pruebas)
