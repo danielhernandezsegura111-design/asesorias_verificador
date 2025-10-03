@@ -3,7 +3,7 @@ import sqlite3, uuid, qrcode, os
 from io import BytesIO
 import base64
 from datetime import datetime, timedelta
-
+from admin_app import admin_bp
 # ---------------- CONFIGURACIÓN DE RUTA ABSOLUTA ----------------
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 TEMPLATES_DIR = os.path.join(BASE_DIR, "templates")
@@ -233,22 +233,8 @@ def limpiar_endpoint():
     return jsonify({"mensaje": f"Se limpiaron {cambios} registros expirados"}), 200
 
 # ---------------- PANEL DE CONTROL (PROTEGIDO) ----------------
-@app.route("/admin")
-@requires_auth
-def admin_panel():
-    conn = db_connection()
-    cursor = conn.cursor()
-    cursor.execute("SELECT nombre, curp, status FROM beneficiarios")
-    rows = cursor.fetchall()
-    conn.close()
-
-    # Generar una tabla simple con los beneficiarios
-    tabla = "<table border=1><tr><th>Nombre</th><th>CURP</th><th>Status</th></tr>"
-    for row in rows:
-        tabla += f"<tr><td>{row['nombre']}</td><td>{row['curp']}</td><td>{row['status']}</td></tr>"
-    tabla += "</table>"
-
-    return f"<h1>Panel de control</h1>{tabla}"
+# Registrar el blueprint con prefijo /admin
+app.register_blueprint(admin_bp, url_prefix="/admin")
 
 # ---------------- MAIN ----------------
 if __name__ == "__main__":

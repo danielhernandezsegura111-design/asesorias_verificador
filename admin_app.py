@@ -8,7 +8,31 @@ from datetime import datetime
 # Cambia esta IP por la de tu PC si usas celular en la misma red
 SERVER_URL = "http://192.168.1.68:5000"
 DB_NAME = "beneficiarios.db"
+# admin_app.py
+from flask import Blueprint, render_template
+import sqlite3
 
+admin_bp = Blueprint("admin", __name__, template_folder="templates")
+
+def db_connection():
+    conn = sqlite3.connect("beneficiarios.db")
+    conn.row_factory = sqlite3.Row
+    return conn
+
+@admin_bp.route("/")
+def admin_panel():
+    conn = db_connection()
+    cursor = conn.cursor()
+    cursor.execute("SELECT nombre, curp, status FROM beneficiarios")
+    rows = cursor.fetchall()
+    conn.close()
+
+    tabla = "<table border=1><tr><th>Nombre</th><th>CURP</th><th>Status</th></tr>"
+    for row in rows:
+        tabla += f"<tr><td>{row['nombre']}</td><td>{row['curp']}</td><td>{row['status']}</td></tr>"
+    tabla += "</table>"
+
+    return f"<h1>Panel de control</h1>{tabla}"
 # ---------------- UTILIDADES DE BASE DE DATOS ----------------
 def get_conn():
     return sqlite3.connect(DB_NAME)
