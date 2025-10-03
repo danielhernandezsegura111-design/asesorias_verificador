@@ -3,7 +3,7 @@ import sqlite3, uuid, qrcode, os
 from io import BytesIO
 import base64
 from datetime import datetime, timedelta
-from adminapp import adminbp
+from admin_app import admin_bp
 
 #---------------- CONFIGURACIÓN DE RUTA ABSOLUTA ----------------
 BASEDIR = os.path.dirname(os.path.abspath(file_))
