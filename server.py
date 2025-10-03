@@ -6,8 +6,8 @@ from datetime import datetime, timedelta
 from admin_app import admin_bp
 
 #---------------- CONFIGURACIÓN DE RUTA ABSOLUTA ----------------
-BASEDIR = os.path.dirname(os.path.abspath(file_))
-TEMPLATESDIR = os.path.join(BASEDIR, "templates")
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+TEMPLATES_DIR = os.path.join(BASE_DIR, "templates")
 
 app = Flask(name, templatefolder=TEMPLATESDIR)
 
