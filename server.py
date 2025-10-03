@@ -116,7 +116,7 @@ def registrar():
 # ---------------- VERIFICACIÓN POR URL (GET) ----------------
 @app.route("/verificar/<codigo>", methods=["GET"])
 def verificar_codigo(codigo):
-    limpiar_expirados()  # 👈 limpiar antes de verificar
+    limpiar_expirados()
     conn = db_connection()
     cursor = conn.cursor()
     cursor.execute("SELECT * FROM beneficiarios WHERE codigo_unico=?", (codigo,))
@@ -136,10 +136,8 @@ def verificar_codigo(codigo):
     status = row["status"]
     fecha_expira = row["fecha_expira"]
 
-    # --- Lógica de expiración ---
     if status == "RECLAMADO":
         if fecha_expira and datetime.fromisoformat(fecha_expira) < datetime.now():
-            # Ya expiró → resetear a pendiente
             cursor.execute("""
                 UPDATE beneficiarios 
                 SET status=?, fecha_reclamo=NULL, fecha_expira=NULL 
@@ -155,7 +153,6 @@ def verificar_codigo(codigo):
             </body></html>
             """
 
-    # --- Si está pendiente, marcar como reclamado ---
     if status == "PENDIENTE":
         expira = datetime.now() + TIEMPO_RENOVACION
         cursor.execute("""
@@ -175,7 +172,7 @@ def verificar_codigo(codigo):
 # ---------------- VERIFICACIÓN POR JSON (POST) ----------------
 @app.route("/verificar", methods=["POST"])
 def verificar_post():
-    limpiar_expirados()  # 👈 limpiar antes de verificar
+    limpiar_expirados()
     data = request.json
     codigo = data.get("codigo")
 
@@ -194,7 +191,6 @@ def verificar_post():
 
     if status == "RECLAMADO":
         if fecha_expira and datetime.fromisoformat(fecha_expira) < datetime.now():
-            # Ya expiró → resetear
             cursor.execute("""
                 UPDATE beneficiarios 
                 SET status=?, fecha_reclamo=NULL, fecha_expira=NULL 
@@ -206,7 +202,6 @@ def verificar_post():
             conn.close()
             return jsonify({"status": "ya reclamado", "nombre": nombre})
 
-    # Si está pendiente, marcar como reclamado y asignar fecha_expira
     expira = datetime.now() + TIEMPO_RENOVACION
     cursor.execute("""
         UPDATE beneficiarios 
@@ -236,6 +231,24 @@ def configurar_tiempo():
 def limpiar_endpoint():
     cambios = limpiar_expirados()
     return jsonify({"mensaje": f"Se limpiaron {cambios} registros expirados"}), 200
+
+# ---------------- PANEL DE CONTROL (PROTEGIDO) ----------------
+@app.route("/admin")
+@requires_auth
+def admin_panel():
+    conn = db_connection()
+    cursor = conn.cursor()
+    cursor.execute("SELECT nombre, curp, status FROM beneficiarios")
+    rows = cursor.fetchall()
+    conn.close()
+
+    # Generar una tabla simple con los beneficiarios
+    tabla = "<table border=1><tr><th>Nombre</th><th>CURP</th><th>Status</th></tr>"
+    for row in rows:
+        tabla += f"<tr><td>{row['nombre']}</td><td>{row['curp']}</td><td>{row['status']}</td></tr>"
+    tabla += "</table>"
+
+    return f"<h1>Panel de control</h1>{tabla}"
 
 # ---------------- MAIN ----------------
 if __name__ == "__main__":
