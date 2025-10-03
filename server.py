@@ -35,7 +35,7 @@ def ensure_schema():
     conn.commit()
     conn.close()
 
-Llamar al inicio
+#Llamar al inicio
 ensure_schema()
 
 #---------------- CONEXIÓN A LA BASE ----------------
