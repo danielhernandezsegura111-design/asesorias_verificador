@@ -97,7 +97,9 @@ def registrar():
     conn.close()
 
     # Generar QR con la URL completa de verificación
-    url_qr = f"http://192.168.1.68:5000/verificar/{codigo}"  # cambia por tu IP o dominio público
+    BASE_URL = os.getenv("BASE_URL", "http://localhost:5000")
+    url_qr = f"{BASE_URL}/verificar/{codigo}"
+
     qr_img = qrcode.make(url_qr)
     buffer = BytesIO()
     qr_img.save(buffer, format="PNG")
