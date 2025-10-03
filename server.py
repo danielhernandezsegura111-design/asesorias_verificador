@@ -29,7 +29,62 @@ def ensure_schema():
 # Llamar al inicio
 ensure_schema()
 
+def get_conn():
+    conn = sqlite3.connect("beneficiarios.db")
+    conn.row_factory = sqlite3.Row
+    return conn
 
+def obtenertiempoexpira():
+    conn = get_conn()
+    cursor = conn.cursor()
+    cursor.execute("SELECT valor FROM config WHERE clave='tiempo_expira'")
+    row = cursor.fetchone()
+    conn.close()
+    if row:
+        return int(row["valor"])
+    return 3600  # por defecto 1 hora
+
+@app.route("/verificar", methods=["POST"])
+def verificar_codigo():
+    data = request.get_json()
+    codigo = data.get("codigo", "").strip()
+
+    if not codigo:
+        return jsonify({"error": "Código no proporcionado"}), 400
+
+    conn = get_conn()
+    cursor = conn.cursor()
+    cursor.execute("SELECT id, nombre, status FROM beneficiarios WHERE codigo_unico=?", (codigo,))
+    row = cursor.fetchone()
+
+    if not row:
+        conn.close()
+        return jsonify({"status": "no encontrado"}), 404
+
+    id_, nombre, status = row["id"], row["nombre"], row["status"]
+
+    if status == "RECLAMADO":
+        conn.close()
+        return jsonify({"status": "ya reclamado", "nombre": nombre})
+
+    # Marcar como RECLAMADO y calcular fecha_expira
+    segundos = obtenertiempoexpira()
+    expira = datetime.now() + timedelta(seconds=segundos)
+    fecha_reclamo = datetime.now().isoformat()
+    fecha_expira = expira.isoformat()
+
+    cursor.execute("""
+        UPDATE beneficiarios
+        SET status='RECLAMADO', fechareclamo=?, fechaexpira=?
+        WHERE id=?
+    """, (fechareclamo, fechaexpira, id_))
+    conn.commit()
+    conn.close()
+
+    return jsonify({"status": "puede reclamar", "nombre": nombre})
+`
+
+---
 # ---------------- CONFIGURACIÓN DE TIEMPO DE RENOVACIÓN ----------------
 # Valor por defecto: 10 segundos (para pruebas)
 TIEMPO_RENOVACION = timedelta(seconds=10)
