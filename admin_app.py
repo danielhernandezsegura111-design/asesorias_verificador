@@ -1,10 +1,12 @@
+# admin_app.py (versión web para Render con menú, formulario de tiempo y autenticación)
 from flask import Blueprint, request, jsonify, Response
 import sqlite3
-from datetime import datetime, timedelta
+from datetime import datetime
 from functools import wraps
 
 DB_NAME = "beneficiarios.db"
 
+# Definimos el Blueprint
 admin_bp = Blueprint("admin", __name__, template_folder="templates")
 
 # ---------------- AUTENTICACIÓN ----------------
@@ -15,6 +17,7 @@ def check_auth(username, password):
     return username == USERNAME and password == PASSWORD
 
 def authenticate():
+    """Responde con 401 para pedir credenciales"""
     return Response(
         "Acceso restringido. Ingresa usuario y contraseña.\n",
         401,
@@ -36,37 +39,8 @@ def get_conn():
     conn.row_factory = sqlite3.Row
     return conn
 
-def ensure_config():
-    conn = get_conn()
-    cursor = conn.cursor()
-    cursor.execute("""
-        CREATE TABLE IF NOT EXISTS config (
-            clave TEXT PRIMARY KEY,
-            valor TEXT
-        )
-    """)
-    conn.commit()
-    conn.close()
-
-def guardar_tiempo(segundos=None, horas=None):
-    valor = str(segundos) if segundos else str(int(horas) * 3600)
-    conn = get_conn()
-    cursor = conn.cursor()
-    cursor.execute("REPLACE INTO config (clave, valor) VALUES (?, ?)", ("tiempo_expira", valor))
-    conn.commit()
-    conn.close()
-
-def obtener_tiempo_expira():
-    conn = get_conn()
-    cursor = conn.cursor()
-    cursor.execute("SELECT valor FROM config WHERE clave='tiempo_expira'")
-    row = cursor.fetchone()
-    conn.close()
-    if row:
-        return int(row["valor"])
-    return 3600  # por defecto 1 hora
-
 def limpiar_expirados():
+    """Resetea a PENDIENTE todos los beneficiarios RECLAMADO cuyo tiempo ya expiró."""
     conn = get_conn()
     cursor = conn.cursor()
     cursor.execute("SELECT id, fecha_expira FROM beneficiarios WHERE status='RECLAMADO'")
@@ -91,7 +65,7 @@ def limpiar_expirados():
 @admin_bp.route("/")
 @requires_auth
 def admin_panel():
-    ensure_config()
+    """Panel de control web en /admin"""
     limpiar_expirados()
     conn = get_conn()
     cursor = conn.cursor()
@@ -99,6 +73,7 @@ def admin_panel():
     rows = cursor.fetchall()
     conn.close()
 
+    # Menú de accesos rápidos
     menu = """
     <h1>Panel de Control</h1>
     <h3>Accesos rápidos</h3>
@@ -111,6 +86,7 @@ def admin_panel():
     </ul>
     """
 
+    # Tabla de beneficiarios
     tabla = """
     <h3>Beneficiarios registrados</h3>
     <table border=1 cellpadding=5>
@@ -131,8 +107,8 @@ def admin_panel():
 @admin_bp.route("/configurar_tiempo", methods=["GET", "POST"])
 @requires_auth
 def configurar_tiempo():
-    ensure_config()
     if request.method == "GET":
+        # Mostrar formulario en navegador
         return """
         <h2>Configurar tiempo de renovación</h2>
         <form method="post">
@@ -143,15 +119,14 @@ def configurar_tiempo():
         <p>También puedes usar POST con JSON: {"segundos":10} o {"horas":1}</p>
         """
 
+    # POST: puede venir como JSON o como formulario
     data = request.get_json(silent=True) or request.form
     segundos = data.get("segundos")
     horas = data.get("horas")
 
     if segundos:
-        guardar_tiempo(segundos=segundos)
         return jsonify({"ok": True, "mensaje": f"Tiempo configurado en {segundos} segundos"})
     elif horas:
-        guardar_tiempo(horas=horas)
         return jsonify({"ok": True, "mensaje": f"Tiempo configurado en {horas} horas"})
     else:
         return jsonify({"ok": False, "error": "Debes enviar 'segundos' o 'horas'"}), 400
