@@ -9,7 +9,7 @@ from admin_app import admin_bp
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 TEMPLATES_DIR = os.path.join(BASE_DIR, "templates")
 
-app = Flask(name, templatefolder=TEMPLATESDIR)
+app = Flask(__name__, template_folder=TEMPLATES_DIR)
 
 #---------------- CREACIÓN DE TABLAS ----------------
 def ensure_schema():
