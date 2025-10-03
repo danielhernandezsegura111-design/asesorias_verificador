@@ -1,4 +1,4 @@
-from flask import Flask, request, jsonify, render_template
+from flask import Flask, request, jsonify, render_template, Response
 import sqlite3, uuid, qrcode, os
 from io import BytesIO
 import base64
@@ -39,6 +39,28 @@ def limpiar_expirados():
     conn.commit()
     conn.close()
     return cambios
+
+# ---------------- AUTENTICACIÓN BÁSICA PARA PANEL ----------------
+USERNAME = "cerati"
+PASSWORD = "123"
+
+def check_auth(username, password):
+    return username == USERNAME and password == PASSWORD
+
+def authenticate():
+    return Response(
+        "Acceso restringido. Ingresa usuario y contraseña.", 401,
+        {"WWW-Authenticate": 'Basic realm="Login Required"'}
+    )
+
+def requires_auth(f):
+    def decorated(*args, **kwargs):
+        auth = request.authorization
+        if not auth or not check_auth(auth.username, auth.password):
+            return authenticate()
+        return f(*args, **kwargs)
+    decorated.__name__ = f.__name__
+    return decorated
 
 # ---------------- PÁGINA PRINCIPAL ----------------
 @app.route("/")
