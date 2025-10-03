@@ -5,13 +5,13 @@ import base64
 from datetime import datetime, timedelta
 from adminapp import adminbp
 
----------------- CONFIGURACIÓN DE RUTA ABSOLUTA ----------------
+#---------------- CONFIGURACIÓN DE RUTA ABSOLUTA ----------------
 BASEDIR = os.path.dirname(os.path.abspath(file_))
 TEMPLATESDIR = os.path.join(BASEDIR, "templates")
 
 app = Flask(name, templatefolder=TEMPLATESDIR)
 
----------------- CREACIÓN DE TABLAS ----------------
+#---------------- CREACIÓN DE TABLAS ----------------
 def ensure_schema():
     conn = sqlite3.connect("beneficiarios.db")
     cursor = conn.cursor()
@@ -38,13 +38,13 @@ def ensure_schema():
 Llamar al inicio
 ensure_schema()
 
----------------- CONEXIÓN A LA BASE ----------------
+#---------------- CONEXIÓN A LA BASE ----------------
 def get_conn():
     conn = sqlite3.connect("beneficiarios.db")
     conn.row_factory = sqlite3.Row
     return conn
 
----------------- OBTENER TIEMPO DE EXPIRACIÓN ----------------
+#---------------- OBTENER TIEMPO DE EXPIRACIÓN ----------------
 def obtenertiempoexpira():
     conn = get_conn()
     cursor = conn.cursor()
@@ -55,7 +55,7 @@ def obtenertiempoexpira():
         return int(row["valor"])
     return 3600  # por defecto 1 hora
 
----------------- FUNCIÓN DE LIMPIEZA ----------------
+#---------------- FUNCIÓN DE LIMPIEZA ----------------
 def limpiar_expirados():
     """Resetea a PENDIENTE todos los beneficiarios RECLAMADO cuyo tiempo ya expiró."""
     conn = get_conn()
@@ -75,7 +75,7 @@ def limpiar_expirados():
     conn.close()
     return cambios
 
----------------- AUTENTICACIÓN BÁSICA PARA PANEL ----------------
+#---------------- AUTENTICACIÓN BÁSICA PARA PANEL ----------------
 USERNAME = "cerati"
 PASSWORD = "123"
 
@@ -97,12 +97,12 @@ def requires_auth(f):
     decorated.name = f.name
     return decorated
 
----------------- PÁGINA PRINCIPAL ----------------
+#---------------- PÁGINA PRINCIPAL ----------------
 @app.route("/")
 def index():
     return render_template("form.html")
 
----------------- REGISTRO DE USUARIO ----------------
+#---------------- REGISTRO DE USUARIO ----------------
 @app.route("/registrar", methods=["POST"])
 def registrar():
     nombre = request.form["nombre"].strip().upper()
@@ -148,7 +148,7 @@ def registrar():
     <img src="data:image/png;base64,{qr_base64}">
     """
 
----------------- VERIFICACIÓN POR URL (GET) ----------------
+#---------------- VERIFICACIÓN POR URL (GET) ----------------
 @app.route("/verificar/<codigo>", methods=["GET"])
 def verificarcodigoqr(codigo):
     limpiar_expirados()
@@ -205,7 +205,7 @@ def verificarcodigoqr(codigo):
         </body></html>
         """
 
----------------- VERIFICACIÓN POR JSON (POST) ----------------
+#---------------- VERIFICACIÓN POR JSON (POST) ----------------
 @app.route("/verificar", methods=["POST"])
 def verificar_post():
     limpiar_expirados()
