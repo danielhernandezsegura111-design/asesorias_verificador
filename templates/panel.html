@@ -1,0 +1,78 @@
+<!DOCTYPE html>
+<html>
+<head>
+<style>
+body {
+    background: linear-gradient(to right, #1f4037, #99f2c8);
+    font-family: 'Segoe UI', sans-serif;
+    color: #333;
+    padding: 40px;
+}
+h1 {
+    text-align: center;
+    font-size: 48px;
+    margin-bottom: 30px;
+}
+table {
+    width: 100%;
+    border-collapse: collapse;
+    background: white;
+    box-shadow: 0 0 10px rgba(0,0,0,0.1);
+}
+th, td {
+    padding: 12px;
+    border-bottom: 1px solid #ddd;
+    text-align: center;
+}
+th {
+    background-color: #56ab2f;
+    color: white;
+}
+tr:hover {
+    background-color: #f1f1f1;
+}
+form {
+    text-align: center;
+    margin-top: 30px;
+}
+button {
+    background-color: #ff4e50;
+    color: white;
+    border: none;
+    padding: 12px 24px;
+    font-size: 16px;
+    border-radius: 8px;
+    cursor: pointer;
+}
+button:hover {
+    background-color: #e03e3e;
+}
+</style>
+</head>
+<body>
+<h1>Panel de Beneficiarios</h1>
+<table>
+    <tr>
+        <th>ID</th>
+        <th>Nombre</th>
+        <th>CURP</th>
+        <th>Status</th>
+        <th>Fecha Reclamo</th>
+        <th>Fecha Expira</th>
+    </tr>
+    {% for b in beneficiarios %}
+    <tr>
+        <td>{{ b.id }}</td>
+        <td>{{ b.nombre }}</td>
+        <td>{{ b.curp }}</td>
+        <td>{{ b.status }}</td>
+        <td>{{ b.fecha_reclamo or '—' }}</td>
+        <td>{{ b.fecha_expira or '—' }}</td>
+    </tr>
+    {% endfor %}
+</table>
+<form method="POST" action="{{ url_for('admin.limpiar') }}">
+    <button type="submit">🧹 Limpiar registros expirados</button>
+</form>
+</body>
+</html>

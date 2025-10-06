@@ -1,5 +1,5 @@
 from flask import Flask, request, jsonify, render_template, Response
-import sqlite3, uuid, qrcode, os
+import psycopg2, psycopg2.extras, uuid, qrcode, os
 from io import BytesIO
 import base64
 from datetime import datetime, timedelta
@@ -10,46 +10,26 @@ BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 TEMPLATES_DIR = os.path.join(BASE_DIR, "templates")
 app = Flask(__name__, template_folder=TEMPLATES_DIR)
 
-# ---------------- CREACIÓN DE TABLAS ----------------
-def ensure_schema():
-    conn = sqlite3.connect("beneficiarios.db")
-    cursor = conn.cursor()
-    cursor.execute("""
-        CREATE TABLE IF NOT EXISTS beneficiarios (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            nombre TEXT NOT NULL,
-            curp TEXT UNIQUE NOT NULL,
-            codigo_unico TEXT UNIQUE NOT NULL,
-            status TEXT DEFAULT 'PENDIENTE',
-            fecha_reclamo TEXT,
-            fecha_expira TEXT
-        )
-    """)
-    cursor.execute("""
-        CREATE TABLE IF NOT EXISTS config (
-            clave TEXT PRIMARY KEY,
-            valor TEXT
-        )
-    """)
-    cursor.execute("""
-        INSERT OR IGNORE INTO config (clave, valor) VALUES ('tiempo_expira', '3600')
-    """)
-    conn.commit()
-    conn.close()
-
-ensure_schema()
-
-# ---------------- CONEXIÓN A LA BASE ----------------
+# ---------------- CONEXIÓN A SUPABASE ----------------
 def get_conn():
-    conn = sqlite3.connect("beneficiarios.db")
-    conn.row_factory = sqlite3.Row
+    conn = psycopg2.connect(
+        host="llalchbyrmgeeossgtbu.supabase.co",
+        database="postgres",
+        user="postgres",
+        password="asesorias",
+        port="5432",
+        sslmode="require"
+    )
     return conn
+
+def get_cursor(conn):
+    return conn.cursor(cursor_factory=psycopg2.extras.DictCursor)
 
 # ---------------- OBTENER TIEMPO DE EXPIRACIÓN ----------------
 def obtener_tiempo_expira():
     conn = get_conn()
-    cursor = conn.cursor()
-    cursor.execute("SELECT valor FROM config WHERE clave='tiempo_expira'")
+    cursor = get_cursor(conn)
+    cursor.execute("SELECT valor FROM config WHERE clave=%s", ('tiempo_expira',))
     row = cursor.fetchone()
     conn.close()
     return int(row["valor"]) if row else 3600
@@ -57,17 +37,17 @@ def obtener_tiempo_expira():
 # ---------------- FUNCIÓN DE LIMPIEZA ----------------
 def limpiar_expirados():
     conn = get_conn()
-    cursor = conn.cursor()
-    cursor.execute("SELECT id, fecha_expira FROM beneficiarios WHERE status='RECLAMADO'")
+    cursor = get_cursor(conn)
+    cursor.execute("SELECT id, fecha_expira FROM beneficiarios WHERE status=%s", ('RECLAMADO',))
     rows = cursor.fetchall()
     cambios = 0
     for row in rows:
         if row["fecha_expira"] and datetime.fromisoformat(row["fecha_expira"]) < datetime.now():
             cursor.execute("""
                 UPDATE beneficiarios
-                SET status='PENDIENTE', fecha_reclamo=NULL, fecha_expira=NULL
-                WHERE id=?
-            """, (row["id"],))
+                SET status=%s, fecha_reclamo=NULL, fecha_expira=NULL
+                WHERE id=%s
+            """, ('PENDIENTE', row["id"]))
             cambios += 1
     conn.commit()
     conn.close()
@@ -110,8 +90,8 @@ def registrar():
         return "❌ La CURP debe tener exactamente 18 caracteres"
 
     conn = get_conn()
-    cursor = conn.cursor()
-    cursor.execute("SELECT 1 FROM beneficiarios WHERE nombre=? OR curp=?", (nombre, curp))
+    cursor = get_cursor(conn)
+    cursor.execute("SELECT 1 FROM beneficiarios WHERE nombre=%s OR curp=%s", (nombre, curp))
     existe = cursor.fetchone()
     if existe:
         conn.close()
@@ -120,7 +100,7 @@ def registrar():
     codigo = str(uuid.uuid4())
     cursor.execute("""
         INSERT INTO beneficiarios (nombre, curp, codigo_unico, status) 
-        VALUES (?,?,?,?)
+        VALUES (%s, %s, %s, %s)
     """, (nombre, curp, codigo, "PENDIENTE"))
     conn.commit()
     conn.close()
@@ -145,43 +125,13 @@ def registrar():
 def verificar_codigo(codigo):
     limpiar_expirados()
     conn = get_conn()
-    cursor = conn.cursor()
-    cursor.execute("SELECT * FROM beneficiarios WHERE codigo_unico=?", (codigo,))
+    cursor = get_cursor(conn)
+    cursor.execute("SELECT * FROM beneficiarios WHERE codigo_unico=%s", (codigo,))
     row = cursor.fetchone()
 
     if not row:
         conn.close()
-        return """
-        <html>
-        <head>
-        <style>
-        body {
-            background: linear-gradient(to right, #434343, #000000);
-            font-family: 'Segoe UI', sans-serif;
-            color: white;
-            text-align: center;
-            padding-top: 100px;
-        }
-        .card {
-            background: rgba(255,255,255,0.1);
-            padding: 40px;
-            border-radius: 15px;
-            box-shadow: 0 0 20px rgba(255,255,255,0.2);
-            display: inline-block;
-        }
-        h1 {
-            font-size: 60px;
-            margin-bottom: 20px;
-        }
-        </style>
-        </head>
-        <body>
-        <div class="card">
-            <h1>❌ CÓDIGO NO ENCONTRADO</h1>
-        </div>
-        </body>
-        </html>
-        """, 404
+        return render_template("codigo_no_encontrado.html"), 404
 
     id_ = row["id"]
     nombre = row["nombre"]
@@ -193,95 +143,27 @@ def verificar_codigo(codigo):
         if fecha_expira and datetime.fromisoformat(fecha_expira) < datetime.now():
             cursor.execute("""
                 UPDATE beneficiarios 
-                SET status='PENDIENTE', fecha_reclamo=NULL, fecha_expira=NULL 
-                WHERE id=?
-            """, (id_,))
+                SET status=%s, fecha_reclamo=NULL, fecha_expira=NULL 
+                WHERE id=%s
+            """, ('PENDIENTE', id_))
             conn.commit()
             status = "PENDIENTE"
         else:
             conn.close()
-            return f"""
-            <html>
-            <head>
-            <style>
-            body {{
-                background: linear-gradient(to right, #ff4e50, #f9d423);
-                font-family: 'Segoe UI', sans-serif;
-                color: white;
-                text-align: center;
-                padding-top: 100px;
-            }}
-            .card {{
-                background: rgba(0,0,0,0.3);
-                padding: 40px;
-                border-radius: 15px;
-                box-shadow: 0 0 20px rgba(0,0,0,0.5);
-                display: inline-block;
-            }}
-            h1 {{
-                font-size: 60px;
-                margin-bottom: 20px;
-            }}
-            p {{
-                font-size: 24px;
-            }}
-            </style>
-            </head>
-            <body>
-            <div class="card">
-                <h1>🛑 YA RECLAMADO</h1>
-                <p>{nombre} ({curp})</p>
-            </div>
-            </body>
-            </html>
-            """
+            return render_template("ya_reclamado.html", nombre=nombre, curp=curp)
 
     if status == "PENDIENTE":
         segundos = obtener_tiempo_expira()
         expira = datetime.now() + timedelta(seconds=segundos)
         cursor.execute("""
             UPDATE beneficiarios 
-            SET status='RECLAMADO', fecha_reclamo=?, fecha_expira=? 
-            WHERE id=?
-        """, (datetime.now().isoformat(), expira.isoformat(), id_))
+            SET status=%s, fecha_reclamo=%s, fecha_expira=%s 
+            WHERE id=%s
+        """, ('RECLAMADO', datetime.now().isoformat(), expira.isoformat(), id_))
         conn.commit()
         conn.close()
-        return f"""
-        <html>
-        <head>
-        <style>
-        body {{
-            background: linear-gradient(to right, #a8e063, #56ab2f);
-            font-family: 'Segoe UI', sans-serif;
-            color: white;
-            text-align: center;
-            padding-top: 100px;
-        }}
-        .card {{
-            background: rgba(0,0,0,0.3);
-            padding: 40px;
-            border-radius: 15px;
-            box-shadow: 0 0 20px rgba(0,0,0,0.5);
-            display: inline-block;
-        }}
-        h1 {{
-            font-size: 60px;
-            margin-bottom: 20px;
-        }}
-        p {{
-            font-size: 24px;
-        }}
-        </style>
-        </head>
-        <body>
-        <div class="card">
-            <h1>✅ VALIDADO</h1>
-            <p>{nombre} ({curp})</p>
-            <p>Reclamo válido hasta <strong>{expira.strftime('%H:%M:%S')}</strong></p>
-        </div>
-        </body>
-        </html>
-        """
+        return render_template("validado.html", nombre=nombre, curp=curp, expira=expira.strftime('%H:%M:%S'))
+
 # ---------------- VERIFICACIÓN POR JSON ----------------
 @app.route("/verificar", methods=["POST"])
 def verificar_post():
@@ -290,8 +172,8 @@ def verificar_post():
     codigo = data.get("codigo")
 
     conn = get_conn()
-    cursor = conn.cursor()
-    cursor.execute("SELECT * FROM beneficiarios WHERE codigo_unico=?", (codigo,))
+    cursor = get_cursor(conn)
+    cursor.execute("SELECT * FROM beneficiarios WHERE codigo_unico=%s", (codigo,))
     row = cursor.fetchone()
 
     if not row:
@@ -307,9 +189,9 @@ def verificar_post():
         if fecha_expira and datetime.fromisoformat(fecha_expira) < datetime.now():
             cursor.execute("""
                 UPDATE beneficiarios 
-                SET status='PENDIENTE', fecha_reclamo=NULL, fecha_expira=NULL 
-                WHERE id=?
-            """, ("PENDIENTE", id_))
+                SET status=%s, fecha_reclamo=NULL, fecha_expira=NULL 
+                WHERE id=%s
+            """, ('PENDIENTE', id_))
             conn.commit()
             status = "PENDIENTE"
         else:
@@ -320,9 +202,9 @@ def verificar_post():
     expira = datetime.now() + timedelta(seconds=segundos)
     cursor.execute("""
         UPDATE beneficiarios 
-        SET status='RECLAMADO', fecha_reclamo=?, fecha_expira=? 
-        WHERE id=?
-    """, (datetime.now().isoformat(), expira.isoformat(), id_))
+        SET status=%s, fecha_reclamo=%s, fecha_expira=%s 
+        WHERE id=%s
+    """, ('RECLAMADO', datetime.now().isoformat(), expira.isoformat(), id_))
     conn.commit()
     conn.close()
 
@@ -342,6 +224,7 @@ if __name__ == "__main__":
     port = int(os.environ.get("PORT", 5000))
     print(f"Usando templates desde: {TEMPLATES_DIR}")
     app.run(host="0.0.0.0", port=port, debug=True)
+
 
 
 

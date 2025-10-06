@@ -1,9 +1,8 @@
 from flask import Blueprint, request, jsonify, Response
-import sqlite3
+import psycopg2, psycopg2.extras
 from datetime import datetime, timedelta
 from functools import wraps
 
-DB_NAME = "beneficiarios.db"
 admin_bp = Blueprint("admin", __name__, template_folder="templates")
 
 # ---------------- AUTENTICACIÓN ----------------
@@ -17,7 +16,7 @@ def authenticate():
     return Response(
         "Acceso restringido. Ingresa usuario y contraseña.\n",
         401,
-        {"WWW-Authenticate": 'Basic realm="Login Required"'}
+        {"WWW-Authenticate": 'Basic realm=\"Login Required\"'}
     )
 
 def requires_auth(f):
@@ -29,16 +28,25 @@ def requires_auth(f):
         return f(*args, **kwargs)
     return decorated
 
-# ---------------- BASE DE DATOS ----------------
+# ---------------- CONEXIÓN A SUPABASE ----------------
 def get_conn():
-    conn = sqlite3.connect(DB_NAME)
-    conn.row_factory = sqlite3.Row
-    return conn
+    return psycopg2.connect(
+        host="llalchbyrmgeeossgtbu.supabase.co",
+        database="postgres",
+        user="postgres",
+        password="asesorias",
+        port="5432",
+        sslmode="require"
+    )
 
+def get_cursor(conn):
+    return conn.cursor(cursor_factory=psycopg2.extras.DictCursor)
+
+# ---------------- FUNCIONES ----------------
 def limpiar_expirados():
     conn = get_conn()
-    cursor = conn.cursor()
-    cursor.execute("SELECT id, fecha_expira FROM beneficiarios WHERE status='RECLAMADO'")
+    cursor = get_cursor(conn)
+    cursor.execute("SELECT id, fecha_expira FROM beneficiarios WHERE status=%s", ('RECLAMADO',))
     rows = cursor.fetchall()
     cambios = 0
     for row in rows:
@@ -46,9 +54,9 @@ def limpiar_expirados():
             if row["fecha_expira"] and datetime.fromisoformat(row["fecha_expira"]) < datetime.now():
                 cursor.execute("""
                     UPDATE beneficiarios
-                    SET status='PENDIENTE', fecha_reclamo=NULL, fecha_expira=NULL
-                    WHERE id=?
-                """, (row["id"],))
+                    SET status=%s, fecha_reclamo=NULL, fecha_expira=NULL
+                    WHERE id=%s
+                """, ('PENDIENTE', row["id"]))
                 cambios += 1
         except Exception:
             continue
@@ -58,8 +66,8 @@ def limpiar_expirados():
 
 def obtener_tiempo_expira():
     conn = get_conn()
-    cursor = conn.cursor()
-    cursor.execute("SELECT valor FROM config WHERE clave='tiempo_expira'")
+    cursor = get_cursor(conn)
+    cursor.execute("SELECT valor FROM config WHERE clave=%s", ('tiempo_expira',))
     row = cursor.fetchone()
     conn.close()
     return int(row["valor"]) if row else 3600
@@ -70,7 +78,7 @@ def obtener_tiempo_expira():
 def admin_panel():
     limpiar_expirados()
     conn = get_conn()
-    cursor = conn.cursor()
+    cursor = get_cursor(conn)
 
     tiempo_expira = obtener_tiempo_expira()
 
@@ -119,12 +127,12 @@ def admin_panel():
             restante = dt_reclamo + timedelta(seconds=tiempo_expira) - ahora
             if restante.total_seconds() <= 0:
                 conn2 = get_conn()
-                cursor2 = conn2.cursor()
+                cursor2 = get_cursor(conn2)
                 cursor2.execute("""
                     UPDATE beneficiarios
-                    SET status='PENDIENTE', fecha_reclamo=NULL, fecha_expira=NULL
-                    WHERE id=?
-                """, (row["id"],))
+                    SET status=%s, fecha_reclamo=NULL, fecha_expira=NULL
+                    WHERE id=%s
+                """, ('PENDIENTE', row["id"]))
                 conn2.commit()
                 conn2.close()
                 status = "PENDIENTE"
@@ -160,10 +168,10 @@ def configurar_tiempo():
         return jsonify({"ok": False, "error": "Valor inválido"}), 400
 
     conn = get_conn()
-    cursor = conn.cursor()
+    cursor = get_cursor(conn)
     cursor.execute("""
-        INSERT INTO config (clave, valor) VALUES (?, ?)
-        ON CONFLICT(clave) DO UPDATE SET valor=excluded.valor
+        INSERT INTO config (clave, valor) VALUES (%s, %s)
+        ON CONFLICT (clave) DO UPDATE SET valor = EXCLUDED.valor
     """, ("tiempo_expira", str(segundos)))
     conn.commit()
     conn.close()
@@ -175,11 +183,12 @@ def configurar_tiempo():
 @requires_auth
 def eliminar_usuario(id):
     conn = get_conn()
-    cursor = conn.cursor()
-    cursor.execute("DELETE FROM beneficiarios WHERE id=?", (id,))
+    cursor = get_cursor(conn)
+    cursor.execute("DELETE FROM beneficiarios WHERE id=%s", (id,))
     conn.commit()
     conn.close()
     return jsonify({"ok": True, "mensaje": f"Usuario {id} eliminado"})
+
 
 
 
