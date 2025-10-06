@@ -4,11 +4,13 @@ from io import BytesIO
 import base64
 from datetime import datetime, timedelta
 from admin_app import admin_bp
+
 # ---------------- CONFIGURACIÓN DE RUTA ABSOLUTA ----------------
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 TEMPLATES_DIR = os.path.join(BASE_DIR, "templates")
-
 app = Flask(__name__, template_folder=TEMPLATES_DIR)
+
+# ---------------- CREACIÓN DE TABLAS ----------------
 def ensure_schema():
     conn = sqlite3.connect("beneficiarios.db")
     cursor = conn.cursor()
@@ -23,27 +25,38 @@ def ensure_schema():
             fecha_expira TEXT
         )
     """)
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS config (
+            clave TEXT PRIMARY KEY,
+            valor TEXT
+        )
+    """)
+    cursor.execute("""
+        INSERT OR IGNORE INTO config (clave, valor) VALUES ('tiempo_expira', '3600')
+    """)
     conn.commit()
     conn.close()
 
-# Llamar al inicio
 ensure_schema()
 
-
-# ---------------- CONFIGURACIÓN DE TIEMPO DE RENOVACIÓN ----------------
-# Valor por defecto: 10 segundos (para pruebas)
-TIEMPO_RENOVACION = timedelta(seconds=10)
-
 # ---------------- CONEXIÓN A LA BASE ----------------
-def db_connection():
+def get_conn():
     conn = sqlite3.connect("beneficiarios.db")
     conn.row_factory = sqlite3.Row
     return conn
 
+# ---------------- OBTENER TIEMPO DE EXPIRACIÓN ----------------
+def obtener_tiempo_expira():
+    conn = get_conn()
+    cursor = conn.cursor()
+    cursor.execute("SELECT valor FROM config WHERE clave='tiempo_expira'")
+    row = cursor.fetchone()
+    conn.close()
+    return int(row["valor"]) if row else 3600
+
 # ---------------- FUNCIÓN DE LIMPIEZA ----------------
 def limpiar_expirados():
-    """Resetea a PENDIENTE todos los beneficiarios RECLAMADO cuyo tiempo ya expiró."""
-    conn = db_connection()
+    conn = get_conn()
     cursor = conn.cursor()
     cursor.execute("SELECT id, fecha_expira FROM beneficiarios WHERE status='RECLAMADO'")
     rows = cursor.fetchall()
@@ -93,21 +106,17 @@ def registrar():
     nombre = request.form["nombre"].strip().upper()
     curp = request.form["curp"].strip().upper()
 
-    # Validaciones
     if len(curp) != 18:
         return "❌ La CURP debe tener exactamente 18 caracteres"
 
-    conn = db_connection()
+    conn = get_conn()
     cursor = conn.cursor()
-
-    # Verificar duplicados
     cursor.execute("SELECT 1 FROM beneficiarios WHERE nombre=? OR curp=?", (nombre, curp))
     existe = cursor.fetchone()
     if existe:
         conn.close()
         return "❌ El nombre o la CURP ya están registrados"
 
-    # Insertar si pasa validaciones
     codigo = str(uuid.uuid4())
     cursor.execute("""
         INSERT INTO beneficiarios (nombre, curp, codigo_unico, status) 
@@ -116,10 +125,8 @@ def registrar():
     conn.commit()
     conn.close()
 
-    # Generar QR con la URL completa de verificación
     BASE_URL = os.getenv("BASE_URL", "http://localhost:5000")
     url_qr = f"{BASE_URL}/verificar/{codigo}"
-
     qr_img = qrcode.make(url_qr)
     buffer = BytesIO()
     qr_img.save(buffer, format="PNG")
@@ -133,11 +140,11 @@ def registrar():
     <img src="data:image/png;base64,{qr_base64}">
     """
 
-# ---------------- VERIFICACIÓN POR URL (GET) ----------------
+# ---------------- VERIFICACIÓN POR URL ----------------
 @app.route("/verificar/<codigo>", methods=["GET"])
 def verificar_codigo(codigo):
     limpiar_expirados()
-    conn = db_connection()
+    conn = get_conn()
     cursor = conn.cursor()
     cursor.execute("SELECT * FROM beneficiarios WHERE codigo_unico=?", (codigo,))
     row = cursor.fetchone()
@@ -145,9 +152,35 @@ def verificar_codigo(codigo):
     if not row:
         conn.close()
         return """
-        <html><body style="background-color: gray; color: white; text-align:center;">
-        <h1 style="font-size:50px;">❌ CÓDIGO NO ENCONTRADO</h1>
-        </body></html>
+        <html>
+        <head>
+        <style>
+        body {
+            background: linear-gradient(to right, #434343, #000000);
+            font-family: 'Segoe UI', sans-serif;
+            color: white;
+            text-align: center;
+            padding-top: 100px;
+        }
+        .card {
+            background: rgba(255,255,255,0.1);
+            padding: 40px;
+            border-radius: 15px;
+            box-shadow: 0 0 20px rgba(255,255,255,0.2);
+            display: inline-block;
+        }
+        h1 {
+            font-size: 60px;
+            margin-bottom: 20px;
+        }
+        </style>
+        </head>
+        <body>
+        <div class="card">
+            <h1>❌ CÓDIGO NO ENCONTRADO</h1>
+        </div>
+        </body>
+        </html>
         """, 404
 
     id_ = row["id"]
@@ -160,48 +193,109 @@ def verificar_codigo(codigo):
         if fecha_expira and datetime.fromisoformat(fecha_expira) < datetime.now():
             cursor.execute("""
                 UPDATE beneficiarios 
-                SET status=?, fecha_reclamo=NULL, fecha_expira=NULL 
+                SET status='PENDIENTE', fecha_reclamo=NULL, fecha_expira=NULL 
                 WHERE id=?
-            """, ("PENDIENTE", id_))
+            """, (id_,))
             conn.commit()
             status = "PENDIENTE"
         else:
             conn.close()
             return f"""
-            <html><body style="background-color: red; color: white; text-align:center;">
-            <h1 style="font-size:50px;">🟥 {nombre} ({curp}) YA RECLAMÓ</h1>
-            </body></html>
+            <html>
+            <head>
+            <style>
+            body {{
+                background: linear-gradient(to right, #ff4e50, #f9d423);
+                font-family: 'Segoe UI', sans-serif;
+                color: white;
+                text-align: center;
+                padding-top: 100px;
+            }}
+            .card {{
+                background: rgba(0,0,0,0.3);
+                padding: 40px;
+                border-radius: 15px;
+                box-shadow: 0 0 20px rgba(0,0,0,0.5);
+                display: inline-block;
+            }}
+            h1 {{
+                font-size: 60px;
+                margin-bottom: 20px;
+            }}
+            p {{
+                font-size: 24px;
+            }}
+            </style>
+            </head>
+            <body>
+            <div class="card">
+                <h1>🛑 YA RECLAMADO</h1>
+                <p>{nombre} ({curp})</p>
+            </div>
+            </body>
+            </html>
             """
 
     if status == "PENDIENTE":
-        expira = datetime.now() + TIEMPO_RENOVACION
+        segundos = obtener_tiempo_expira()
+        expira = datetime.now() + timedelta(seconds=segundos)
         cursor.execute("""
             UPDATE beneficiarios 
-            SET status=?, fecha_reclamo=?, fecha_expira=? 
+            SET status='RECLAMADO', fecha_reclamo=?, fecha_expira=? 
             WHERE id=?
-        """, ("RECLAMADO", datetime.now().isoformat(), expira.isoformat(), id_))
+        """, (datetime.now().isoformat(), expira.isoformat(), id_))
         conn.commit()
         conn.close()
         return f"""
-        <html><body style="background-color: green; color: white; text-align:center;">
-        <h1 style="font-size:50px;">🟩 {nombre} ({curp}) VALIDADO</h1>
-        <p>Marcado como RECLAMADO hasta {expira.strftime("%H:%M:%S")}</p>
-        </body></html>
+        <html>
+        <head>
+        <style>
+        body {{
+            background: linear-gradient(to right, #a8e063, #56ab2f);
+            font-family: 'Segoe UI', sans-serif;
+            color: white;
+            text-align: center;
+            padding-top: 100px;
+        }}
+        .card {{
+            background: rgba(0,0,0,0.3);
+            padding: 40px;
+            border-radius: 15px;
+            box-shadow: 0 0 20px rgba(0,0,0,0.5);
+            display: inline-block;
+        }}
+        h1 {{
+            font-size: 60px;
+            margin-bottom: 20px;
+        }}
+        p {{
+            font-size: 24px;
+        }}
+        </style>
+        </head>
+        <body>
+        <div class="card">
+            <h1>✅ VALIDADO</h1>
+            <p>{nombre} ({curp})</p>
+            <p>Reclamo válido hasta <strong>{expira.strftime('%H:%M:%S')}</strong></p>
+        </div>
+        </body>
+        </html>
         """
-
-# ---------------- VERIFICACIÓN POR JSON (POST) ----------------
+# ---------------- VERIFICACIÓN POR JSON ----------------
 @app.route("/verificar", methods=["POST"])
 def verificar_post():
     limpiar_expirados()
     data = request.json
     codigo = data.get("codigo")
 
-    conn = db_connection()
+    conn = get_conn()
     cursor = conn.cursor()
     cursor.execute("SELECT * FROM beneficiarios WHERE codigo_unico=?", (codigo,))
     row = cursor.fetchone()
 
     if not row:
+        conn.close()
         return jsonify({"status": "no existe"})
 
     id_ = row["id"]
@@ -213,7 +307,7 @@ def verificar_post():
         if fecha_expira and datetime.fromisoformat(fecha_expira) < datetime.now():
             cursor.execute("""
                 UPDATE beneficiarios 
-                SET status=?, fecha_reclamo=NULL, fecha_expira=NULL 
+                SET status='PENDIENTE', fecha_reclamo=NULL, fecha_expira=NULL 
                 WHERE id=?
             """, ("PENDIENTE", id_))
             conn.commit()
@@ -222,46 +316,32 @@ def verificar_post():
             conn.close()
             return jsonify({"status": "ya reclamado", "nombre": nombre})
 
-    expira = datetime.now() + TIEMPO_RENOVACION
+    segundos = obtener_tiempo_expira()
+    expira = datetime.now() + timedelta(seconds=segundos)
     cursor.execute("""
         UPDATE beneficiarios 
-        SET status=?, fecha_reclamo=?, fecha_expira=? 
+        SET status='RECLAMADO', fecha_reclamo=?, fecha_expira=? 
         WHERE id=?
-    """, ("RECLAMADO", datetime.now().isoformat(), expira.isoformat(), id_))
+    """, (datetime.now().isoformat(), expira.isoformat(), id_))
     conn.commit()
     conn.close()
 
-    return jsonify({"status": "puede reclamar", "nombre": nombre})
+    return jsonify({"status": "puede reclamar", "nombre": nombre, "expira": expira.isoformat()})
 
-# ---------------- ENDPOINT PARA CONFIGURAR TIEMPO ----------------
-@app.route("/configurar_tiempo", methods=["POST"])
-def configurar_tiempo():
-    global TIEMPO_RENOVACION
-    data = request.json
-    if "segundos" in data:
-        TIEMPO_RENOVACION = timedelta(seconds=data["segundos"])
-    elif "horas" in data:
-        TIEMPO_RENOVACION = timedelta(hours=data["horas"])
-    else:
-        return jsonify({"error": "Parámetros inválidos"}), 400
-    return jsonify({"mensaje": f"Tiempo de renovación actualizado a {TIEMPO_RENOVACION}"}), 200
-
-# ---------------- ENDPOINT DE LIMPIEZA GENERAL ----------------
+# ---------------- LIMPIEZA MANUAL ----------------
 @app.route("/limpiar", methods=["POST"])
 def limpiar_endpoint():
     cambios = limpiar_expirados()
     return jsonify({"mensaje": f"Se limpiaron {cambios} registros expirados"}), 200
 
-# ---------------- PANEL DE CONTROL (PROTEGIDO) ----------------
-# Registrar el blueprint con prefijo /admin
+# ---------------- PANEL ADMIN ----------------
 app.register_blueprint(admin_bp, url_prefix="/admin")
 
 # ---------------- MAIN ----------------
 if __name__ == "__main__":
-    port = int(os.environ.get("PORT", 5000))  # Render asigna el puerto
+    port = int(os.environ.get("PORT", 5000))
     print(f"Usando templates desde: {TEMPLATES_DIR}")
     app.run(host="0.0.0.0", port=port, debug=True)
-
 
 
 

@@ -3,60 +3,149 @@
 <head>
   <meta charset="UTF-8">
   <title>Registro de Beneficiarios</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <style>
-    body {
-      font-family: Arial, sans-serif;
-      margin: 40px;
-      background-color: #f4f4f9;
+    html, body {
+      margin: 0;
+      padding: 0;
+      height: 100%;
+      font-family: 'Segoe UI', sans-serif;
+      overflow: hidden;
+      background: transparent;
     }
+
+    #particles-js {
+      position: fixed;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      background: linear-gradient(to bottom right, #dcedc8, #a5d6a7);
+      z-index: -1;
+    }
+
+    .card {
+      background: #e8f5e9;
+      padding: 40px;
+      border-radius: 15px;
+      box-shadow: 0 8px 20px rgba(0,0,0,0.2);
+      width: 100%;
+      max-width: 400px;
+      margin: auto;
+      margin-top: 10vh;
+      animation: fadeIn 0.8s ease;
+      position: relative;
+      z-index: 1;
+    }
+
     h1 {
-      color: #333;
+      text-align: center;
+      color: #2e7d32;
+      margin-bottom: 30px;
     }
-    form {
-      background: #fff;
-      padding: 20px;
-      border-radius: 8px;
-      width: 300px;
-      box-shadow: 0 0 10px rgba(0,0,0,0.1);
-    }
+
     label {
       display: block;
-      margin-top: 10px;
+      margin-top: 15px;
       font-weight: bold;
+      color: #388e3c;
     }
+
     input {
       width: 100%;
-      padding: 8px;
+      padding: 10px;
       margin-top: 5px;
       border: 1px solid #ccc;
-      border-radius: 4px;
+      border-radius: 8px;
+      font-size: 16px;
     }
+
     button {
-      margin-top: 15px;
-      padding: 10px;
+      margin-top: 25px;
+      padding: 12px;
       width: 100%;
-      background: #28a745;
+      background: #66bb6a;
       color: white;
       border: none;
-      border-radius: 4px;
-      font-size: 16px;
+      border-radius: 8px;
+      font-size: 18px;
       cursor: pointer;
+      transition: background 0.3s ease;
     }
+
     button:hover {
-      background: #218838;
+      background: #43a047;
+    }
+
+    @keyframes fadeIn {
+      from { opacity: 0; transform: translateY(20px); }
+      to { opacity: 1; transform: translateY(0); }
+    }
+
+    @media (max-width: 500px) {
+      .card {
+        padding: 30px 20px;
+        margin-top: 5vh;
+      }
     }
   </style>
 </head>
 <body>
-  <h1>Registro de Beneficiarios</h1>
-  <form action="/registrar" method="post">
-    <label for="nombre">Nombre:</label>
-    <input type="text" id="nombre" name="nombre" required>
+  <div id="particles-js"></div>
 
-    <label for="curp">CURP:</label>
-    <input type="text" id="curp" name="curp" maxlength="18" minlength="18" required>
+  <div class="card">
+    <h1>Registro de Beneficiarios</h1>
+    <form action="/registrar" method="post">
+      <label for="nombre">Nombre:</label>
+      <input type="text" id="nombre" name="nombre" required>
 
-    <button type="submit">Registrar</button>
-  </form>
+      <label for="curp">CURP:</label>
+      <input type="text" id="curp" name="curp" maxlength="18" minlength="18" required>
+
+      <button type="submit">Registrar</button>
+    </form>
+  </div>
+
+  <!-- Particles.js script -->
+  <script src="https://cdn.jsdelivr.net/npm/particles.js@2.0.0/particles.min.js"></script>
+  <script>
+    particlesJS("particles-js", {
+      "particles": {
+        "number": { "value": 60 },
+        "color": { "value": "#ffffff" },
+        "shape": { "type": "circle" },
+        "opacity": { "value": 0.3 },
+        "size": { "value": 4 },
+        "line_linked": {
+          "enable": true,
+          "distance": 150,
+          "color": "#ffffff",
+          "opacity": 0.2,
+          "width": 1
+        },
+        "move": {
+          "enable": true,
+          "speed": 2,
+          "direction": "none",
+          "out_mode": "out"
+        }
+      },
+      "interactivity": {
+        "detect_on": "canvas",
+        "events": {
+          "onhover": { "enable": true, "mode": "repulse" },
+          "onclick": { "enable": false }
+        }
+      },
+      "retina_detect": true
+    });
+  </script>
 </body>
 </html>
+
+
+
+
+
+
+
