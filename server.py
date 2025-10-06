@@ -12,15 +12,14 @@ app = Flask(__name__, template_folder=TEMPLATES_DIR)
 
 # ---------------- CONEXIÓN A SUPABASE ----------------
 def get_conn():
-    conn = psycopg2.connect(
-        host="llalchbyrmgeeossgtbu.supabase.co",
-        database="postgres",
-        user="postgres",
-        password="asesorias",
-        port="5432",
+    return psycopg2.connect(
+        host=os.getenv("DB_HOST"),
+        database=os.getenv("DB_NAME"),
+        user=os.getenv("DB_USER"),
+        password=os.getenv("DB_PASS"),
+        port=os.getenv("DB_PORT", "5432"),
         sslmode="require"
     )
-    return conn
 
 def get_cursor(conn):
     return conn.cursor(cursor_factory=psycopg2.extras.DictCursor)
