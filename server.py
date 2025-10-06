@@ -218,6 +218,26 @@ def limpiar_endpoint():
 # ---------------- PANEL ADMIN ----------------
 app.register_blueprint(admin_bp, url_prefix="/admin")
 
+@app.route("/diagnostico", methods=["GET"])
+def diagnostico():
+    try:
+        conn = get_conn()
+        cursor = get_cursor(conn)
+        cursor.execute("SELECT COUNT(*) FROM beneficiarios")
+        total = cursor.fetchone()[0]
+        conn.close()
+
+        return f"""
+        <h1>✅ Conexión exitosa</h1>
+        <p>Hora del servidor: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}</p>
+        <p>Registros en beneficiarios: {total}</p>
+        """
+    except Exception as e:
+        return f"""
+        <h1>❌ Error de conexión</h1>
+        <p>{str(e)}</p>
+        """
+
 # ---------------- MAIN ----------------
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 5000))
