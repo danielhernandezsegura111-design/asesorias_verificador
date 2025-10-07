@@ -1,9 +1,12 @@
-from flask import Blueprint, request, jsonify, Response
-import psycopg2, psycopg2.extras
-from datetime import datetime, timedelta
+from flask import Blueprint, request, jsonify, Response, redirect, url_for
+import sqlite3
+from utils import limpiar_expirados
+from datetime import datetime
 from functools import wraps
+from config import DB_NAME
+from flask import send_file
 
-admin_bp = Blueprint("admin", __name__, template_folder="templates")
+admin_bp = Blueprint("admin", __name__)
 
 # ---------------- AUTENTICACIÓN ----------------
 USERNAME = "admin"
@@ -13,11 +16,8 @@ def check_auth(username, password):
     return username == USERNAME and password == PASSWORD
 
 def authenticate():
-    return Response(
-        "Acceso restringido. Ingresa usuario y contraseña.\n",
-        401,
-        {"WWW-Authenticate": 'Basic realm=\"Login Required\"'}
-    )
+    return Response("Acceso restringido.\n", 401,
+                    {"WWW-Authenticate": 'Basic realm="Login Required"'})
 
 def requires_auth(f):
     @wraps(f)
@@ -28,131 +28,90 @@ def requires_auth(f):
         return f(*args, **kwargs)
     return decorated
 
-# ---------------- CONEXIÓN A SUPABASE ----------------
+# ---------------- BASE DE DATOS ----------------
 def get_conn():
-    return psycopg2.connect(
-        host="llalchbyrmgeeossgtbu.supabase.co",
-        database="postgres",
-        user="postgres",
-        password="asesorias",
-        port="5432",
-        sslmode="require"
-    )
+    conn = sqlite3.connect(DB_NAME)
+    conn.row_factory = sqlite3.Row
+    return conn
 
-def get_cursor(conn):
-    return conn.cursor(cursor_factory=psycopg2.extras.DictCursor)
-
-# ---------------- FUNCIONES ----------------
-def limpiar_expirados():
+def obtener_tiempo_config_segundos():
     conn = get_conn()
-    cursor = get_cursor(conn)
-    cursor.execute("SELECT id, fecha_expira FROM beneficiarios WHERE status=%s", ('RECLAMADO',))
-    rows = cursor.fetchall()
-    cambios = 0
-    for row in rows:
-        try:
-            if row["fecha_expira"] and datetime.fromisoformat(row["fecha_expira"]) < datetime.now():
-                cursor.execute("""
-                    UPDATE beneficiarios
-                    SET status=%s, fecha_reclamo=NULL, fecha_expira=NULL
-                    WHERE id=%s
-                """, ('PENDIENTE', row["id"]))
-                cambios += 1
-        except Exception:
-            continue
-    conn.commit()
+    cur = conn.cursor()
+    cur.execute("SELECT valor FROM config WHERE clave='tiempo_expira'")
+    row = cur.fetchone()
     conn.close()
-    return cambios
-
-def obtener_tiempo_expira():
-    conn = get_conn()
-    cursor = get_cursor(conn)
-    cursor.execute("SELECT valor FROM config WHERE clave=%s", ('tiempo_expira',))
-    row = cursor.fetchone()
-    conn.close()
-    return int(row["valor"]) if row else 3600
+    return int(row["valor"]) if row else 1800  # 30 min por defecto
 
 # ---------------- PANEL ----------------
 @admin_bp.route("/")
 @requires_auth
 def admin_panel():
+    # 🔹 refrescamos estados antes de mostrar
     limpiar_expirados()
+
     conn = get_conn()
-    cursor = get_cursor(conn)
+    cur = conn.cursor()
+    segundos = obtener_tiempo_config_segundos()
+    cur.execute("SELECT * FROM beneficiarios ORDER BY id DESC")
+    rows = cur.fetchall()
+    conn.close()
 
-    tiempo_expira = obtener_tiempo_expira()
-
-    cursor.execute("SELECT id, nombre, curp, status, codigo_unico, fecha_reclamo FROM beneficiarios")
-    rows = cursor.fetchall()
-
-    # Formulario desplegable
+    # Formulario de configuración + botón de eliminación masiva
     config_form = f"""
+    <h1>Panel de Administración</h1>
     <h2>Configurar tiempo de renovación</h2>
     <form method="post" action="/admin/configurar_tiempo">
-        <label>Selecciona duración:</label>
+        <label>Duración:</label>
         <select name="segundos">
-            <option value="40">40 segundos</option>
-            <option value="1800">30 minutos</option>
-            <option value="3600">1 hora</option>
-            <option value="7200">2 horas</option>
-            <option value="14400">4 horas</option>
-            <option value="21600">6 horas</option>
-            <option value="28800">8 horas</option>
-            <option value="36000">10 horas</option>
-            <option value="43200">12 horas</option>
+            <option value="40" {'selected' if segundos==40 else ''}>40 segundos</option>
+            <option value="600" {'selected' if segundos==600 else ''}>10 minutos</option>
+            <option value="1800" {'selected' if segundos==1800 else ''}>30 minutos</option>
+            <option value="3600" {'selected' if segundos==3600 else ''}>1 hora</option>
+            <option value="7200" {'selected' if segundos==7200 else ''}>2 horas</option>
         </select>
         <button type="submit">Aplicar</button>
     </form>
-    <p>Tiempo actual configurado: {tiempo_expira} segundos</p>
+    <p>Tiempo actual configurado: {segundos} segundos</p>
+    <hr>
+
+    <h2>Eliminar todos los beneficiarios</h2>
+    <form method="post" action="/admin/eliminar_todos" onsubmit="return confirm('¿Estás seguro de que deseas eliminar TODOS los beneficiarios? Esta acción no se puede deshacer.');">
+        <button type="submit" style="background-color:#ff4d4d; color:white; padding:8px 16px; border:none; border-radius:4px;">Eliminar todos</button>
+    </form>
+    <hr>
+    <h2>Descargar base de datos actual</h2>
+    <form method="get" action="/admin/descargar_db">
+        <button type="submit" style="background-color:#4CAF50; color:white; padding:8px 16px; border:none; border-radius:4px;">Descargar .db</button>
+    </form>
     <hr>
     """
-
-    # Tabla
+    # Tabla de beneficiarios
     tabla = """
-    <h3>Beneficiarios registrados</h3>
-    <table border=1 cellpadding=5>
-        <tr>
+    <h3>Beneficiarios</h3>
+    <table style="border-collapse:collapse; width:100%; font-family:Arial; font-size:14px;">
+        <tr style="background:#f0f0f0; text-align:center;">
             <th>ID</th><th>Nombre</th><th>CURP</th><th>Status</th>
-            <th>Código Único</th><th>Último Reclamo</th><th>Tiempo para volver a reclamar</th><th>Eliminar</th>
+            <th>Fecha registro</th><th>Último reclamo</th><th>Disponible hasta</th><th>Eliminar</th>
         </tr>
     """
-    ahora = datetime.now()
     for row in rows:
         status = row["status"]
         color = "#d9fcd9" if status == "PENDIENTE" else "#ffd6d6"
-        fecha_reclamo = row["fecha_reclamo"]
+        fecha_registro = row["fecha_registro"] or "—"
+        fecha_reclamo = row["fecha_reclamo"] or "—"
+        fecha_expira = row["fecha_expira"]
 
-        if fecha_reclamo:
-            dt_reclamo = datetime.fromisoformat(fecha_reclamo)
-            restante = dt_reclamo + timedelta(seconds=tiempo_expira) - ahora
-            if restante.total_seconds() <= 0:
-                conn2 = get_conn()
-                cursor2 = get_cursor(conn2)
-                cursor2.execute("""
-                    UPDATE beneficiarios
-                    SET status=%s, fecha_reclamo=NULL, fecha_expira=NULL
-                    WHERE id=%s
-                """, ('PENDIENTE', row["id"]))
-                conn2.commit()
-                conn2.close()
-                status = "PENDIENTE"
-                color = "#d9fcd9"
-                tiempo_restante = "Disponible"
-            else:
-                tiempo_restante = f"{int(restante.total_seconds())} seg"
-            hora_reclamo = dt_reclamo.strftime("%d/%m/%Y %H:%M:%S")
+        if status == "RECLAMADO" and fecha_expira:
+            disponible = datetime.fromisoformat(fecha_expira).strftime("%d/%m/%Y %H:%M:%S")
         else:
-            tiempo_restante = "Disponible"
-            hora_reclamo = "—"
+            disponible = "—"
 
-        tabla += f"<tr style='background-color:{color};'>"
-        tabla += f"<td>{row['id']}</td><td>{row['nombre']}</td><td>{row['curp']}</td>"
-        tabla += f"<td>{status}</td><td>{row['codigo_unico']}</td>"
-        tabla += f"<td>{hora_reclamo}</td><td>{tiempo_restante}</td>"
+        tabla += f"<tr style='background-color:{color}; text-align:center;'>"
+        tabla += f"<td>{row['id']}</td><td>{row['nombre']}</td><td>{row['curp']}</td><td>{status}</td>"
+        tabla += f"<td>{fecha_registro}</td><td>{fecha_reclamo}</td><td>{disponible}</td>"
         tabla += f"<td><form method='post' action='/admin/eliminar/{row['id']}' onsubmit=\"return confirm('¿Eliminar este usuario?');\"><button type='submit'>Eliminar</button></form></td></tr>"
     tabla += "</table>"
 
-    conn.close()
     return config_form + tabla
 
 # ---------------- CONFIGURAR TIEMPO ----------------
@@ -161,33 +120,53 @@ def admin_panel():
 def configurar_tiempo():
     data = request.get_json(silent=True) or request.form
     segundos = data.get("segundos")
-
     try:
         segundos = int(segundos)
     except:
         return jsonify({"ok": False, "error": "Valor inválido"}), 400
 
     conn = get_conn()
-    cursor = get_cursor(conn)
-    cursor.execute("""
-        INSERT INTO config (clave, valor) VALUES (%s, %s)
-        ON CONFLICT (clave) DO UPDATE SET valor = EXCLUDED.valor
+    cur = conn.cursor()
+    cur.execute("""
+        INSERT INTO config (clave, valor) VALUES (?, ?)
+        ON CONFLICT(clave) DO UPDATE SET valor=excluded.valor
     """, ("tiempo_expira", str(segundos)))
     conn.commit()
     conn.close()
 
-    return jsonify({"ok": True, "mensaje": f"Tiempo configurado en {segundos} segundos"})
+    # 🔹 Redirigimos al panel para ver el cambio reflejado
+    return redirect(url_for("admin.admin_panel"))
 
 # ---------------- ELIMINAR USUARIO ----------------
 @admin_bp.route("/eliminar/<int:id>", methods=["POST"])
 @requires_auth
 def eliminar_usuario(id):
     conn = get_conn()
-    cursor = get_cursor(conn)
-    cursor.execute("DELETE FROM beneficiarios WHERE id=%s", (id,))
+    cur = conn.cursor()
+    cur.execute("DELETE FROM beneficiarios WHERE id=?", (id,))
     conn.commit()
     conn.close()
-    return jsonify({"ok": True, "mensaje": f"Usuario {id} eliminado"})
+    return redirect(url_for("admin.admin_panel"))
+@admin_bp.route("/eliminar_todos", methods=["POST"])
+@requires_auth
+def eliminar_todos():
+    conn = get_conn()
+    cur = conn.cursor()
+
+    # 🔴 Eliminar todos los beneficiarios
+    cur.execute("DELETE FROM beneficiarios")
+
+    # 🔄 Reiniciar contador de ID
+    cur.execute("DELETE FROM sqlite_sequence WHERE name='beneficiarios'")
+
+    conn.commit()
+    conn.close()
+    return redirect(url_for("admin.admin_panel"))
+@admin_bp.route("/descargar_db", methods=["GET"])
+@requires_auth
+def descargar_db():
+    return send_file(DB_NAME, as_attachment=True)
+
 
 
 

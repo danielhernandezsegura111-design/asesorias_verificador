@@ -1,7 +1,9 @@
+# database.py
 import sqlite3
+from config import DB_NAME  # ✅ Usamos ruta absoluta compartida
 
 def init_db():
-    conn = sqlite3.connect("beneficiarios.db")
+    conn = sqlite3.connect(DB_NAME)
     cursor = conn.cursor()
 
     # Tabla de beneficiarios
@@ -12,6 +14,7 @@ def init_db():
         curp TEXT UNIQUE NOT NULL,
         codigo_unico TEXT UNIQUE NOT NULL,
         status TEXT DEFAULT 'PENDIENTE',
+        fecha_registro TEXT,
         fecha_reclamo TEXT,
         fecha_expira TEXT
     )
@@ -35,5 +38,8 @@ def init_db():
 
 if __name__ == "__main__":
     init_db()
+
+
+
 
 
